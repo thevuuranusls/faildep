@@ -5,7 +5,17 @@ import (
 	"time"
 )
 
-func exponential(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration {
+// Backoff present strategy for how backOff when something be called many times.
+//
+// - start: first backoff
+// - multipler:
+// - max: maximum backOff
+// - attemp: current attemp count
+type BackOff func(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration
+
+// Exponential present exponential-backoff
+// via: https://en.wikipedia.org/wiki/Exponential_backoff
+func Exponential(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration {
 	backOff := start * time.Duration((int64(1)<<attempt)*int64(multiplier))
 	if backOff > max {
 		backOff = max
@@ -13,7 +23,8 @@ func exponential(start time.Duration, multiplier uint, max time.Duration, attemp
 	return backOff
 }
 
-func exponentialJittered(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration {
+// ExponentialJittered present exponential jittered backoff
+func ExponentialJittered(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration {
 	maxBackOff := start * time.Duration((int64(1)<<attempt)*int64(multiplier))
 	if maxBackOff > max {
 		maxBackOff = max
@@ -21,7 +32,9 @@ func exponentialJittered(start time.Duration, multiplier uint, max time.Duration
 	return time.Duration(rand.Int63n(int64(maxBackOff)))
 }
 
-func decorrelatedJittered(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration {
+// DecorrelatedJittered present decorrelated jittered backOff
+// via: http://www.awsarchitectureblog.com/2015/03/backoff.html
+func DecorrelatedJittered(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration {
 	randRange := start*time.Duration((int64(1)<<attempt)*int64(multiplier)) - start
 	randBackOff := start
 	if randRange != 0 {

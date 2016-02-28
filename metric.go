@@ -69,7 +69,7 @@ type nodeMetrics struct {
 	trippedTimeoutFactor uint
 	trippedTimeoutWindow time.Duration
 	activeReqCountWindow time.Duration
-	trippedBackOff       func(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration
+	trippedBackOff       BackOff
 }
 
 func newNodeMetric(nodes nodeList, trippedTimeoutFactor, failureThreshold uint, activeThreshold uint64,
@@ -81,7 +81,7 @@ func newNodeMetric(nodes nodeList, trippedTimeoutFactor, failureThreshold uint, 
 		activeThreshold:      activeThreshold,
 		trippedTimeoutWindow: trippedTimeoutWindow,
 		activeReqCountWindow: activeReqCountWindow,
-		trippedBackOff:       exponential,
+		trippedBackOff:       Exponential,
 	}
 	for _, node := range nodes {
 		metric := &nodeMetric{
@@ -91,11 +91,17 @@ func newNodeMetric(nodes nodeList, trippedTimeoutFactor, failureThreshold uint, 
 			in:                  make(chan op),
 			out:                 make(chan interface{}),
 		}
-		go metric.loop(time.Now())
 		nm.metrics[node] = metric
 
 	}
 	return nm
+}
+
+func (n *nodeMetrics) start() {
+	current := time.Now()
+	for _, metric := range n.metrics {
+		go metric.loop(current)
+	}
 }
 
 func (n *nodeMetric) recordSuccess(rt time.Duration) {

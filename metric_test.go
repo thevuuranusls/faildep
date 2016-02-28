@@ -10,10 +10,11 @@ func TestMetric_add_and_get(t *testing.T) {
 
 	n := Node{
 		index:  1,
-		server: "123",
+		Server: "123",
 	}
 
 	m := newNodeMetric(nodeList{n}, 10, 10, 10, 10*time.Second, 10*time.Second)
+	m.start()
 
 	nm := m.takeMetric(n)
 	nm.recordFailure(1 * time.Millisecond)

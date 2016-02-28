@@ -1,8 +1,11 @@
 package slb
 
+// Node present a resource.
 type Node struct {
-	index  int
-	server string
+	index int
+	// Server present server name.
+	// e.g. 0.0.0.0:9999
+	Server string
 }
 
 func (s *Node) accessible() bool {
@@ -12,13 +15,13 @@ func (s *Node) accessible() bool {
 type nodeList []Node
 
 func (l *nodeList) accessibleNodes() []Node {
-	ss := make([]Node, 0, len(*l))
-	for _, server := range *l {
-		if server.accessible() {
-			ss = append(ss, server)
+	nodes := make([]Node, 0, len(*l))
+	for _, node := range *l {
+		if node.accessible() {
+			nodes = append(nodes, node)
 		}
 	}
-	return ss
+	return nodes
 }
 
 func (l *nodeList) nodeIndex(server *Node) int {

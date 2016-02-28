@@ -5,19 +5,16 @@ import (
 )
 
 type distributor struct {
-	metrics    *nodeMetrics
-	pickServer func(currentServer *Node, servers nodeList) *Node
+	pickServer func(metrics *nodeMetrics, currentServer *Node, servers nodeList) *Node
 }
 
 func newDistributor(addrs []string, metric *nodeMetrics) *distributor {
-	dist := &distributor{
-		metrics: metric,
-	}
-	dist.pickServer = dist.p2cPick
+	dist := &distributor{}
+	dist.pickServer = p2cPick
 	return dist
 }
 
-func randomPick(currentServer *Node, servers nodeList) *Node {
+func randomPick(metrics *nodeMetrics, currentServer *Node, servers nodeList) *Node {
 	if len(servers) == 0 {
 		return nil
 	}
@@ -29,13 +26,14 @@ func randomPick(currentServer *Node, servers nodeList) *Node {
 	return &servers[nextIdx%len(servers)]
 }
 
-func (d *distributor) p2cPick(currentServer *Node, servers nodeList) *Node {
-	serverLen := len(servers)
+func p2cPick(metrics *nodeMetrics, currentServer *Node, allNodes nodeList) *Node {
+	nodes := excludeCurrent(currentServer, allNodes)
+	serverLen := len(nodes)
 	if serverLen == 0 {
-		return nil
+		return currentServer
 	}
 	if serverLen == 1 {
-		return &servers[0]
+		return &nodes[0]
 	}
 	si1 := rand.Intn(serverLen)
 	delta := 1
@@ -43,10 +41,23 @@ func (d *distributor) p2cPick(currentServer *Node, servers nodeList) *Node {
 		delta = rand.Intn((serverLen - 1)) + 1
 	}
 	si2 := (si1 + delta) % serverLen
-	s1 := servers[si1]
-	s2 := servers[si2]
-	if d.metrics.takeMetric(s1).takeActiveReqCount() > d.metrics.takeMetric(s2).takeActiveReqCount() {
+	s1 := nodes[si1]
+	s2 := nodes[si2]
+	if metrics.takeMetric(s1).takeActiveReqCount() > metrics.takeMetric(s2).takeActiveReqCount() {
 		return &s2
 	}
 	return &s1
+}
+
+func excludeCurrent(current *Node, nodes nodeList) nodeList {
+	if current == nil {
+		return nodes
+	}
+	excludedNodes := make(nodeList, 0, len(nodes)-1)
+	for _, node := range nodes {
+		if *current != node {
+			excludedNodes = append(excludedNodes, node)
+		}
+	}
+	return excludedNodes
 }
