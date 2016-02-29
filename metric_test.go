@@ -13,7 +13,7 @@ func TestMetric_add_and_get(t *testing.T) {
 		Server: "123",
 	}
 
-	m := newNodeMetric(nodeList{n}, 10, 10, 10, 10*time.Second, 10*time.Second)
+	m := newNodeMetric(NodeList{n})
 	m.start()
 
 	nm := m.takeMetric(n)

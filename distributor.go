@@ -5,16 +5,21 @@ import (
 )
 
 type distributor struct {
-	pickServer func(metrics *nodeMetrics, currentServer *Node, servers nodeList) *Node
+	pickServer PickServer
 }
 
 func newDistributor(addrs []string, metric *nodeMetrics) *distributor {
 	dist := &distributor{}
-	dist.pickServer = p2cPick
+	dist.pickServer = P2CPick
 	return dist
 }
 
-func randomPick(metrics *nodeMetrics, currentServer *Node, servers nodeList) *Node {
+// PickServer present pick server logic.
+// NewPick server logic must use this contract.
+type PickServer func(metrics *nodeMetrics, currentServer *Node, servers NodeList) *Node
+
+// RandomPick picks server using random index.
+func RandomPick(metrics *nodeMetrics, currentServer *Node, servers NodeList) *Node {
 	if len(servers) == 0 {
 		return nil
 	}
@@ -26,7 +31,9 @@ func randomPick(metrics *nodeMetrics, currentServer *Node, servers nodeList) *No
 	return &servers[nextIdx%len(servers)]
 }
 
-func p2cPick(metrics *nodeMetrics, currentServer *Node, allNodes nodeList) *Node {
+// P2CPick picks server using P2C
+// https://www.eecs.harvard.edu/~michaelm/postscripts/tpds2001.pdf
+func P2CPick(metrics *nodeMetrics, currentServer *Node, allNodes NodeList) *Node {
 	nodes := excludeCurrent(currentServer, allNodes)
 	serverLen := len(nodes)
 	if serverLen == 0 {
@@ -49,11 +56,15 @@ func p2cPick(metrics *nodeMetrics, currentServer *Node, allNodes nodeList) *Node
 	return &s1
 }
 
-func excludeCurrent(current *Node, nodes nodeList) nodeList {
+func excludeCurrent(current *Node, nodes NodeList) NodeList {
 	if current == nil {
 		return nodes
 	}
-	excludedNodes := make(nodeList, 0, len(nodes)-1)
+	size := len(nodes) - 1
+	if size < 0 {
+		size = 0
+	}
+	excludedNodes := make(NodeList, 0, size)
 	for _, node := range nodes {
 		if *current != node {
 			excludedNodes = append(excludedNodes, node)

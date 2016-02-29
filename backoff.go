@@ -11,12 +11,17 @@ import (
 // - multipler:
 // - max: maximum backOff
 // - attemp: current attemp count
-type BackOff func(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration
+type BackOff func(base time.Duration, max time.Duration, attempt uint) time.Duration
+
+// NoBackOff do everything without backOff
+func NoBackoff(base time.Duration, max time.Duration, attempt uint) time.Duration {
+	return time.Duration(0)
+}
 
 // Exponential present exponential-backoff
 // via: https://en.wikipedia.org/wiki/Exponential_backoff
-func Exponential(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration {
-	backOff := start * time.Duration((int64(1)<<attempt)*int64(multiplier))
+func Exponential(base time.Duration, max time.Duration, attempt uint) time.Duration {
+	backOff := base * time.Duration((int64(1) << attempt))
 	if backOff > max {
 		backOff = max
 	}
@@ -24,8 +29,8 @@ func Exponential(start time.Duration, multiplier uint, max time.Duration, attemp
 }
 
 // ExponentialJittered present exponential jittered backoff
-func ExponentialJittered(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration {
-	maxBackOff := start * time.Duration((int64(1)<<attempt)*int64(multiplier))
+func ExponentialJittered(base time.Duration, max time.Duration, attempt uint) time.Duration {
+	maxBackOff := base * time.Duration((int64(1) << attempt))
 	if maxBackOff > max {
 		maxBackOff = max
 	}
@@ -34,11 +39,11 @@ func ExponentialJittered(start time.Duration, multiplier uint, max time.Duration
 
 // DecorrelatedJittered present decorrelated jittered backOff
 // via: http://www.awsarchitectureblog.com/2015/03/backoff.html
-func DecorrelatedJittered(start time.Duration, multiplier uint, max time.Duration, attempt uint) time.Duration {
-	randRange := start*time.Duration((int64(1)<<attempt)*int64(multiplier)) - start
-	randBackOff := start
+func DecorrelatedJittered(base time.Duration, max time.Duration, attempt uint) time.Duration {
+	randRange := base*time.Duration((int64(1)<<attempt)) - base
+	randBackOff := base
 	if randRange != 0 {
-		randBackOff = start + time.Duration(rand.Int63n(int64(randRange)))
+		randBackOff = base + time.Duration(rand.Int63n(int64(randRange)))
 	}
 	backOff := randBackOff
 	if randBackOff > max {

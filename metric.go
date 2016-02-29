@@ -66,22 +66,16 @@ type nodeMetrics struct {
 	metrics              map[Node]*nodeMetric
 	failureThreshold     uint
 	activeThreshold      uint64
-	trippedTimeoutFactor uint
-	trippedTimeoutWindow time.Duration
+	trippedBaseTime      time.Duration
+	trippedTimeoutMax    time.Duration
 	activeReqCountWindow time.Duration
 	trippedBackOff       BackOff
 }
 
-func newNodeMetric(nodes nodeList, trippedTimeoutFactor, failureThreshold uint, activeThreshold uint64,
-	trippedTimeoutWindow, activeReqCountWindow time.Duration) *nodeMetrics {
+func newNodeMetric(nodes NodeList) *nodeMetrics {
 	nm := &nodeMetrics{
-		metrics:              make(map[Node]*nodeMetric, len(nodes)),
-		trippedTimeoutFactor: trippedTimeoutFactor,
-		failureThreshold:     failureThreshold,
-		activeThreshold:      activeThreshold,
-		trippedTimeoutWindow: trippedTimeoutWindow,
-		activeReqCountWindow: activeReqCountWindow,
-		trippedBackOff:       Exponential,
+		metrics:        make(map[Node]*nodeMetric, len(nodes)),
+		trippedBackOff: Exponential,
 	}
 	for _, node := range nodes {
 		metric := &nodeMetric{
@@ -171,5 +165,5 @@ func (n *nodeMetrics) takeCircuitBreakerBlackoutPeriod(m *nodeMetric) time.Durat
 	if attempt > 16 {
 		attempt = 16
 	}
-	return n.trippedBackOff(1*time.Second, n.trippedTimeoutFactor, n.trippedTimeoutWindow, attempt)
+	return n.trippedBackOff(n.trippedBaseTime, n.trippedTimeoutMax, attempt)
 }
