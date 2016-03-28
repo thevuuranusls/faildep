@@ -8,22 +8,8 @@ type Node struct {
 	Server string
 }
 
-func (s *Node) accessible() bool {
-	return true
-}
-
 // NodeList present resource node list.
 type NodeList []Node
-
-func (l *NodeList) accessibleNodes() []Node {
-	nodes := make([]Node, 0, len(*l))
-	for _, node := range *l {
-		if node.accessible() {
-			nodes = append(nodes, node)
-		}
-	}
-	return nodes
-}
 
 func (l *NodeList) nodeIndex(server *Node) int {
 	if server == nil {
