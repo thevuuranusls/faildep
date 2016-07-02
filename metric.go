@@ -45,7 +45,9 @@ func (n *nodeMetric) loop(current time.Time) {
 				n.activeReqCount++
 				n.lastActiveReqCountChangeTime = current
 			case descActive:
-				n.activeReqCount--
+				if n.activeReqCount > 0 {
+					n.activeReqCount--
+				}
 				n.lastActiveReqCountChangeTime = current
 			case getActive:
 				if n.activeReqCount == 0 {
