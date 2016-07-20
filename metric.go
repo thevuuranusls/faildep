@@ -1,4 +1,4 @@
-package slb
+package faildep
 
 import (
 	"time"
@@ -19,8 +19,8 @@ type op struct {
 	typ opType
 }
 
-type nodeMetric struct {
-	metrics                      *nodeMetrics
+type resourceMetric struct {
+	metrics                      *resourceMetrics
 	successiveFailCount          uint
 	activeReqCount               uint64
 	lastFailedTimestamp          time.Time
@@ -29,7 +29,7 @@ type nodeMetric struct {
 	out                          chan interface{}
 }
 
-func (n *nodeMetric) loop(current time.Time) {
+func (n *resourceMetric) loop(current time.Time) {
 	for {
 		select {
 		case op := <-n.in:
@@ -64,8 +64,8 @@ func (n *nodeMetric) loop(current time.Time) {
 	}
 }
 
-type nodeMetrics struct {
-	metrics              map[Node]*nodeMetric
+type resourceMetrics struct {
+	metrics              map[Resource]*resourceMetric
 	failureThreshold     uint
 	activeThreshold      uint64
 	trippedBaseTime      time.Duration
@@ -74,13 +74,13 @@ type nodeMetrics struct {
 	trippedBackOff       BackOff
 }
 
-func newNodeMetric(nodes NodeList) *nodeMetrics {
-	nm := &nodeMetrics{
-		metrics:        make(map[Node]*nodeMetric, len(nodes)),
+func newNodeMetric(nodes ResourceList) *resourceMetrics {
+	nm := &resourceMetrics{
+		metrics:        make(map[Resource]*resourceMetric, len(nodes)),
 		trippedBackOff: Exponential,
 	}
 	for _, node := range nodes {
-		metric := &nodeMetric{
+		metric := &resourceMetric{
 			metrics:             nm,
 			successiveFailCount: 0,
 			activeReqCount:      0,
@@ -93,47 +93,47 @@ func newNodeMetric(nodes NodeList) *nodeMetrics {
 	return nm
 }
 
-func (n *nodeMetrics) start() {
+func (n *resourceMetrics) start() {
 	current := time.Now()
 	for _, metric := range n.metrics {
 		go metric.loop(current)
 	}
 }
 
-func (n *nodeMetric) recordSuccess(rt time.Duration) {
+func (n *resourceMetric) recordSuccess(rt time.Duration) {
 	n.in <- op{
 		typ: incSuccess,
 	}
 }
 
-func (n *nodeMetric) recordFailure(rt time.Duration) {
+func (n *resourceMetric) recordFailure(rt time.Duration) {
 	n.in <- op{
 		typ: incFailure,
 	}
 }
 
-func (n *nodeMetrics) takeMetric(nd Node) *nodeMetric {
+func (n *resourceMetrics) takeMetric(nd Resource) *resourceMetric {
 	m := n.metrics[nd]
 	m.in <- op{
 		typ: getMetric,
 	}
 	rep := <-m.out
-	return rep.(*nodeMetric)
+	return rep.(*resourceMetric)
 }
 
-func (n *nodeMetric) incActive() {
+func (n *resourceMetric) incActive() {
 	n.in <- op{
 		typ: incActive,
 	}
 }
 
-func (n *nodeMetric) descActive() {
+func (n *resourceMetric) descActive() {
 	n.in <- op{
 		typ: descActive,
 	}
 }
 
-func (n *nodeMetric) takeActiveReqCount() uint64 {
+func (n *resourceMetric) takeActiveReqCount() uint64 {
 	n.in <- op{
 		typ: getActive,
 	}
@@ -141,7 +141,7 @@ func (n *nodeMetric) takeActiveReqCount() uint64 {
 	return data.(uint64)
 }
 
-func (n *nodeMetrics) takeCircuitBreakerTimeout(nd Node) *time.Time {
+func (n *resourceMetrics) takeCircuitBreakerTimeout(nd Resource) *time.Time {
 	metric := n.takeMetric(nd)
 	blackOutPeriod := n.takeCircuitBreakerBlackoutPeriod(metric)
 	if blackOutPeriod <= 0 {
@@ -151,7 +151,7 @@ func (n *nodeMetrics) takeCircuitBreakerTimeout(nd Node) *time.Time {
 	return &timeout
 }
 
-func (n *nodeMetrics) isCircuitBreakTripped(nd Node) bool {
+func (n *resourceMetrics) isCircuitBreakTripped(nd Resource) bool {
 	circuitBreakTimeout := n.takeCircuitBreakerTimeout(nd)
 	if circuitBreakTimeout == nil {
 		return false
@@ -159,7 +159,7 @@ func (n *nodeMetrics) isCircuitBreakTripped(nd Node) bool {
 	return time.Now().Before(*circuitBreakTimeout)
 }
 
-func (n *nodeMetrics) takeCircuitBreakerBlackoutPeriod(m *nodeMetric) time.Duration {
+func (n *resourceMetrics) takeCircuitBreakerBlackoutPeriod(m *resourceMetric) time.Duration {
 	if m.successiveFailCount < n.failureThreshold {
 		return 0 * time.Second
 	}

@@ -1,7 +1,7 @@
-package slb
+package faildep
 
 type executionContext struct {
-	node               *Node
+	node               *Resource
 	attemptCount       uint
 	serverAttemptCount uint
 }

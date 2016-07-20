@@ -1,4 +1,4 @@
-package slb
+package faildep
 
 import (
 	"math/rand"

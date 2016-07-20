@@ -1,4 +1,9 @@
-package slb
+// faildep implements common dependence resource failure handling as a basic library.
+// provide:
+// - dispatch request to available resource in resource list
+// - circuitBreaker break request when successive error or high concurrent number
+// - retry in one resource or try to do it in other resources
+package faildep
 
 import (
 	"fmt"
@@ -9,8 +14,8 @@ import (
 )
 
 var (
-	// AllServerDownError returns when all backend server has down
-	AllServerDownError = fmt.Errorf("All Server Has Down")
+	// AllResourceDownError returns when all backend resource has down
+	AllResourceDownError = fmt.Errorf("All Resource Has Down")
 	// MaxRetryError returns when retry beyond given maxRetry time
 	MaxRetryError = fmt.Errorf("Max retry but still failure")
 )
@@ -33,18 +38,18 @@ const (
 type funcFlag int
 
 const (
-	circuitBreaker = 1 << iota
+	circuitBreaker funcFlag = 1 << iota
 	bulkhead
 	retry
 )
 
-// LoadBalancer present lb for special category resources.
-// Create LoadBalancer use `NewLoadBalancer`
-type LoadBalancer struct {
+// Faildep present failable resources.
+// Create Faildep use `NewFaildep`
+type FailDep struct {
 	funcFlags         funcFlag
-	servers           NodeList
-	distributor       distributor
-	metrics           nodeMetrics
+	servers           ResourceList
+	distributor       dispatcher
+	metrics           resourceMetrics
 	maxRetry          uint
 	maxRePick         uint
 	repClassify       func(err error) RepType
@@ -61,13 +66,13 @@ type LoadBalancer struct {
 // - trippedBaseTime indicate first trip time when breaker open, and successive error will increase base on it.
 // - trippedTimeoutMax indicate maximum tripped time after growth when successive error occur
 // - trippedBackOff indicate how tripped timeout growth, see backoff.go: `Exponential`, `ExponentialJittered`, `DecorrelatedJittered`.
-func WithCircuitBreaker(successiveFailThreshold uint, trippedBaseTime time.Duration, trippedTimeoutMax time.Duration, trippedBackOff BackOff) func(lb *LoadBalancer) {
-	return func(lb *LoadBalancer) {
-		lb.funcFlags |= circuitBreaker
-		lb.metrics.failureThreshold = successiveFailThreshold
-		lb.metrics.trippedBaseTime = trippedBaseTime
-		lb.metrics.trippedTimeoutMax = trippedTimeoutMax
-		lb.metrics.trippedBackOff = trippedBackOff
+func WithCircuitBreaker(successiveFailThreshold uint, trippedBaseTime time.Duration, trippedTimeoutMax time.Duration, trippedBackOff BackOff) func(f *FailDep) {
+	return func(f *FailDep) {
+		f.funcFlags |= circuitBreaker
+		f.metrics.failureThreshold = successiveFailThreshold
+		f.metrics.trippedBaseTime = trippedBaseTime
+		f.metrics.trippedTimeoutMax = trippedTimeoutMax
+		f.metrics.trippedBackOff = trippedBackOff
 	}
 }
 
@@ -77,11 +82,11 @@ func WithCircuitBreaker(successiveFailThreshold uint, trippedBaseTime time.Durat
 //
 // - activeReqThreshold indicate maxActiveReqThreshold for one node
 // - activeReqCountWindow indicate time window for calculate activeReqCount
-func WithBulkhead(activeReqThreshold uint64, activeReqCountWindow time.Duration) func(lb *LoadBalancer) {
-	return func(lb *LoadBalancer) {
-		lb.funcFlags |= bulkhead
-		lb.metrics.activeThreshold = activeReqThreshold
-		lb.metrics.activeReqCountWindow = activeReqCountWindow
+func WithBulkhead(activeReqThreshold uint64, activeReqCountWindow time.Duration) func(f *FailDep) {
+	return func(f *FailDep) {
+		f.funcFlags |= bulkhead
+		f.metrics.activeThreshold = activeReqThreshold
+		f.metrics.activeReqCountWindow = activeReqCountWindow
 	}
 }
 
@@ -95,14 +100,14 @@ func WithBulkhead(activeReqThreshold uint64, activeReqCountWindow time.Duration)
 // - retryMaxInterval indicate maximum retry interval after successive error.
 // - retryBackOff indicate backOff between retry interval, default is `DecorrelatedJittered`
 // - see backoff.go: `Exponential`, `ExponentialJittered`, `DecorrelatedJittered`.
-func WithRetry(maxServerPick, maxRetryPerServer uint, retryBaseInterval, retryMaxInterval time.Duration, retryBackOff BackOff) func(lb *LoadBalancer) {
-	return func(lb *LoadBalancer) {
-		lb.funcFlags |= retry
-		lb.maxRePick = maxServerPick
-		lb.maxRetry = maxRetryPerServer
-		lb.retryBackOff = retryBackOff
-		lb.retryBaseInterval = retryBaseInterval
-		lb.retryMaxInterval = retryMaxInterval
+func WithRetry(maxServerPick, maxRetryPerServer uint, retryBaseInterval, retryMaxInterval time.Duration, retryBackOff BackOff) func(f *FailDep) {
+	return func(f *FailDep) {
+		f.funcFlags |= retry
+		f.maxRePick = maxServerPick
+		f.maxRetry = maxRetryPerServer
+		f.retryBackOff = retryBackOff
+		f.retryBaseInterval = retryBaseInterval
+		f.retryMaxInterval = retryMaxInterval
 	}
 }
 
@@ -111,27 +116,27 @@ func WithRetry(maxServerPick, maxRetryPerServer uint, retryBaseInterval, retryMa
 // - classifier indicate which classifier use to classify response
 //
 // Default use `NetworkErrorClassification` which only take care of Golang network error.
-func WithResponseClassifier(classifier func(_err error) RepType) func(lb *LoadBalancer) {
-	return func(lb *LoadBalancer) {
-		lb.repClassify = classifier
+func WithResponseClassifier(classifier func(_err error) RepType) func(f *FailDep) {
+	return func(f *FailDep) {
+		f.repClassify = classifier
 	}
 }
 
 // WithPickServer config server pick logic.
 // Default use `P2CPick` to pick server.
-func WithPickServer(sp PickServer) func(lb *LoadBalancer) {
-	return func(lb *LoadBalancer) {
-		lb.distributor.pickServer = sp
+func WithPickServer(sp ServerPicker) func(f *FailDep) {
+	return func(f *FailDep) {
+		f.distributor.srvPicker = sp
 	}
 }
 
-// NewLoadBalancer construct LoadBalancer using given node list
-// the node array is provide using string, e.g. `10.10.10.114:9999`
+// NewFailDep construct FailDep using given node list
+// the node array is provide using string, e.g. `10.10.10.10:9999`
 // It's will be tweaked use OptFunction like `WithRetry`, `WithCiruitBreake`, `WithBulkhead`
-func NewLoadBalancer(nodes []string, opts ...func(lb *LoadBalancer)) *LoadBalancer {
-	servers := make(NodeList, 0, len(nodes))
+func NewFailDep(nodes []string, opts ...func(f *FailDep)) *FailDep {
+	servers := make(ResourceList, 0, len(nodes))
 	for idx, addr := range nodes {
-		servers = append(servers, Node{
+		servers = append(servers, Resource{
 			index:  idx,
 			Server: addr,
 		})
@@ -139,9 +144,9 @@ func NewLoadBalancer(nodes []string, opts ...func(lb *LoadBalancer)) *LoadBalanc
 
 	m := newNodeMetric(servers)
 
-	d := newDistributor(nodes, m)
+	d := newDispatcher(nodes, m)
 
-	lb := &LoadBalancer{
+	f := &FailDep{
 		funcFlags:    0,
 		servers:      servers,
 		distributor:  *d,
@@ -151,37 +156,37 @@ func NewLoadBalancer(nodes []string, opts ...func(lb *LoadBalancer)) *LoadBalanc
 	}
 
 	for _, opt := range opts {
-		opt(lb)
+		opt(f)
 	}
 
 	m.start()
 
-	return lb
+	return f
 }
 
-// Submit submits function which will be triggered on some node to load balancer.
-func (l *LoadBalancer) Submit(service func(node *Node) error) error {
+// Do execute function which will be triggered on some node to do something.
+func (f *FailDep) Do(service func(node *Resource) error) error {
 
 	execContext := &executionContext{}
 
-	for execContext.serverAttemptCount <= l.maxRePick {
+	for execContext.serverAttemptCount <= f.maxRePick {
 
 		execContext.incServerAttemptCount()
 
-		execContext.node = l.distributor.pickServer(&l.metrics, execContext.node, l.availableServer())
+		execContext.node = f.distributor.srvPicker(&f.metrics, execContext.node, f.availableServer())
 		if execContext.node == nil {
-			return AllServerDownError
+			return AllResourceDownError
 		}
 
-		metric := l.metrics.takeMetric(*execContext.node)
+		metric := f.metrics.takeMetric(*execContext.node)
 		finish, err := func() (finish bool, errorOut error) {
 			metric.incActive()
 			defer metric.descActive()
-			for execContext.attemptCount <= l.maxRetry {
+			for execContext.attemptCount <= f.maxRetry {
 				execContext.incAttemptCount()
 				startTime := time.Now()
 				err := service(execContext.node)
-				repType := l.repClassify(err)
+				repType := f.repClassify(err)
 				rt := time.Now().Sub(startTime)
 				switch {
 				case repType&OK == OK:
@@ -192,13 +197,13 @@ func (l *LoadBalancer) Submit(service func(node *Node) error) error {
 					metric.recordFailure(rt)
 				}
 
-				if l.funcFlags&retry != retry || repType&Retriable != Retriable {
+				if f.funcFlags&retry != retry || repType&Retriable != Retriable {
 					finish = true
 					errorOut = err
 					return
 				}
 
-				backOffTime := l.retryBackOff(l.retryBaseInterval, l.retryMaxInterval, execContext.attemptCount)
+				backOffTime := f.retryBackOff(f.retryBaseInterval, f.retryMaxInterval, execContext.attemptCount)
 				if backOffTime > 0 {
 					time.Sleep(backOffTime)
 				}
@@ -215,11 +220,11 @@ func (l *LoadBalancer) Submit(service func(node *Node) error) error {
 	return MaxRetryError
 }
 
-func (l *LoadBalancer) availableServer() NodeList {
-	nodes := make([]Node, 0, len(l.servers))
-	for _, node := range l.servers {
-		if !(l.funcFlags&circuitBreaker == circuitBreaker && l.metrics.isCircuitBreakTripped(node)) &&
-			!(l.funcFlags&bulkhead == bulkhead && l.metrics.takeMetric(node).activeReqCount >= l.metrics.activeThreshold) {
+func (f *FailDep) availableServer() ResourceList {
+	nodes := make([]Resource, 0, len(f.servers))
+	for _, node := range f.servers {
+		if !(f.funcFlags&circuitBreaker == circuitBreaker && f.metrics.isCircuitBreakTripped(node)) &&
+			!(f.funcFlags&bulkhead == bulkhead && f.metrics.takeMetric(node).activeReqCount >= f.metrics.activeThreshold) {
 			nodes = append(nodes, node)
 		}
 	}
@@ -227,7 +232,7 @@ func (l *LoadBalancer) availableServer() NodeList {
 }
 
 // NetworkErrorClassification uses to classify network error into ok/failure/retriable/breakable
-// It's default Response classifier for LoadBalancer.
+// It's default Response classifier for FailDep.
 func NetworkErrorClassification(_err error) RepType {
 	var typ RepType
 	if _err == nil {

@@ -1,25 +1,25 @@
-package slb
+package faildep
 
 import (
 	"math/rand"
 )
 
-type distributor struct {
-	pickServer PickServer
+type dispatcher struct {
+	srvPicker ServerPicker
 }
 
-func newDistributor(addrs []string, metric *nodeMetrics) *distributor {
-	dist := &distributor{}
-	dist.pickServer = P2CPick
+func newDispatcher(resources []string, metric *resourceMetrics) *dispatcher {
+	dist := &dispatcher{}
+	dist.srvPicker = P2CPick
 	return dist
 }
 
 // PickServer present pick server logic.
 // NewPick server logic must use this contract.
-type PickServer func(metrics *nodeMetrics, currentServer *Node, servers NodeList) *Node
+type ServerPicker func(metrics *resourceMetrics, currentServer *Resource, servers ResourceList) *Resource
 
 // RandomPick picks server using random index.
-func RandomPick(metrics *nodeMetrics, currentServer *Node, servers NodeList) *Node {
+func RandomPick(metrics *resourceMetrics, currentServer *Resource, servers ResourceList) *Resource {
 	if len(servers) == 0 {
 		return nil
 	}
@@ -33,7 +33,7 @@ func RandomPick(metrics *nodeMetrics, currentServer *Node, servers NodeList) *No
 
 // P2CPick picks server using P2C
 // https://www.eecs.harvard.edu/~michaelm/postscripts/tpds2001.pdf
-func P2CPick(metrics *nodeMetrics, currentServer *Node, allNodes NodeList) *Node {
+func P2CPick(metrics *resourceMetrics, currentServer *Resource, allNodes ResourceList) *Resource {
 	nodes := excludeCurrent(currentServer, allNodes)
 	serverLen := len(nodes)
 	if serverLen == 0 {
@@ -56,7 +56,7 @@ func P2CPick(metrics *nodeMetrics, currentServer *Node, allNodes NodeList) *Node
 	return &s1
 }
 
-func excludeCurrent(current *Node, nodes NodeList) NodeList {
+func excludeCurrent(current *Resource, nodes ResourceList) ResourceList {
 	if current == nil {
 		return nodes
 	}
@@ -64,7 +64,7 @@ func excludeCurrent(current *Node, nodes NodeList) NodeList {
 	if size < 0 {
 		size = 0
 	}
-	excludedNodes := make(NodeList, 0, size)
+	excludedNodes := make(ResourceList, 0, size)
 	for _, node := range nodes {
 		if *current != node {
 			excludedNodes = append(excludedNodes, node)

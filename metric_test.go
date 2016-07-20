@@ -1,4 +1,4 @@
-package slb
+package faildep
 
 import (
 	"github.com/stretchr/testify/assert"
@@ -8,12 +8,12 @@ import (
 
 func TestMetric_add_and_get(t *testing.T) {
 
-	n := Node{
+	n := Resource{
 		index:  1,
 		Server: "123",
 	}
 
-	m := newNodeMetric(NodeList{n})
+	m := newNodeMetric(ResourceList{n})
 	m.start()
 
 	nm := m.takeMetric(n)
