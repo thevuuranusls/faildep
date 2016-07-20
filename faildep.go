@@ -245,11 +245,17 @@ func NetworkErrorClassification(_err error) RepType {
 		if t.Timeout() {
 			typ |= Retriable
 		}
+		if strings.Contains(_err.Error(), "connection refused") {
+			typ |= Retriable
+		}
 		typ |= Breakable
 		return typ
 	case *url.Error:
 		if nestErr, ok := t.Err.(net.Error); ok {
 			if nestErr.Timeout() {
+				typ |= Retriable
+			}
+			if strings.Contains(_err.Error(), "connection refused") {
 				typ |= Retriable
 			}
 			typ |= Breakable
