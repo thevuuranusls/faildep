@@ -6,9 +6,12 @@
 package faildep
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/faildep/faildep-log"
 	"net"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -46,6 +49,7 @@ const (
 // Faildep present failable resources.
 // Create Faildep use `NewFaildep`
 type FailDep struct {
+	name              string
 	funcFlags         funcFlag
 	servers           ResourceList
 	distributor       dispatcher
@@ -56,6 +60,7 @@ type FailDep struct {
 	retryBaseInterval time.Duration
 	retryMaxInterval  time.Duration
 	retryBackOff      BackOff
+	logger            log.Logger
 }
 
 // WithCircuitBreaker configure CircuitBreaker config.
@@ -133,7 +138,7 @@ func WithPickServer(sp ServerPicker) func(f *FailDep) {
 // NewFailDep construct FailDep using given node list
 // the node array is provide using string, e.g. `10.10.10.10:9999`
 // It's will be tweaked use OptFunction like `WithRetry`, `WithCiruitBreake`, `WithBulkhead`
-func NewFailDep(nodes []string, opts ...func(f *FailDep)) *FailDep {
+func NewFailDep(name string, nodes []string, opts ...func(f *FailDep)) *FailDep {
 	servers := make(ResourceList, 0, len(nodes))
 	for idx, addr := range nodes {
 		servers = append(servers, Resource{
@@ -147,12 +152,14 @@ func NewFailDep(nodes []string, opts ...func(f *FailDep)) *FailDep {
 	d := newDispatcher(nodes, m)
 
 	f := &FailDep{
+		name:         name,
 		funcFlags:    0,
 		servers:      servers,
 		distributor:  *d,
 		metrics:      *m,
 		repClassify:  NetworkErrorClassification,
 		retryBackOff: DecorrelatedJittered,
+		logger:       &log.StdLogger{},
 	}
 
 	for _, opt := range opts {
@@ -175,6 +182,7 @@ func (f *FailDep) Do(service func(node *Resource) error) error {
 
 		execContext.node = f.distributor.srvPicker(&f.metrics, execContext.node, f.availableServer())
 		if execContext.node == nil {
+			f.logger.Error("res:", f.name, "s-attempt:", execContext.serverAttemptCount, "error:", "AllServerHasDown")
 			return AllResourceDownError
 		}
 
@@ -186,8 +194,16 @@ func (f *FailDep) Do(service func(node *Resource) error) error {
 				execContext.incAttemptCount()
 				startTime := time.Now()
 				err := service(execContext.node)
+				if err != nil {
+					f.logger.Warning("res:", f.name, "s-attempt:", execContext.serverAttemptCount,
+						"at:", execContext.node.Server, "r-attempt:", execContext.attemptCount,
+						"error:", err,
+					)
+				}
 				repType := f.repClassify(err)
 				rt := time.Now().Sub(startTime)
+				f.logger.Info("res:", f.name, "used:", rt.Nanoseconds()/1000,
+					"at:", execContext.node.Server)
 				switch {
 				case repType&OK == OK:
 					metric.recordSuccess(rt)
@@ -213,6 +229,9 @@ func (f *FailDep) Do(service func(node *Resource) error) error {
 			return
 		}()
 		if finish {
+			if err == nil {
+				f.logger.Error("res:", f.name, "s-attempt:", execContext.serverAttemptCount, "error:", err)
+			}
 			return err
 		}
 	}
@@ -229,6 +248,47 @@ func (f *FailDep) availableServer() ResourceList {
 		}
 	}
 	return nodes
+}
+
+type stats struct {
+	Av        bool   `json:"av"`
+	Srv       string `json:"srv"`
+	ActiveReq uint64 `json:"activeReq"`
+	FailCount uint   `json:"failCount"`
+}
+
+func (f *FailDep) logStats() {
+	defer func() {
+		if r := recover(); r != nil {
+			f.logger.Error("Panic Occured:", r, string(debug.Stack()))
+		}
+	}()
+	for range time.Tick(1 * time.Second) {
+		ss := make([]stats, len(f.servers))
+		for _, node := range f.servers {
+			av := false
+			metric := f.metrics.takeMetric(node)
+			if !(f.funcFlags&circuitBreaker == circuitBreaker && f.metrics.isCircuitBreakTripped(node)) &&
+				!(f.funcFlags&bulkhead == bulkhead && metric.takeActiveReqCount() >= f.metrics.activeThreshold) {
+				av = true
+			}
+			ss = append(ss, stats{
+				Av:        av,
+				Srv:       node.Server,
+				FailCount: metric.takeFailCount(),
+				ActiveReq: metric.takeActiveReqCount(),
+			})
+		}
+
+		for _, s := range ss {
+			statsJSON, err := json.Marshal(s)
+			if err != nil {
+				continue
+			}
+			f.logger.Info("res:", f.name, "statu:", string(statsJSON))
+		}
+
+	}
 }
 
 // NetworkErrorClassification uses to classify network error into ok/failure/retriable/breakable

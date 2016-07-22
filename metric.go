@@ -13,6 +13,7 @@ const (
 	descActive
 	getActive
 	getMetric
+	getFailCount
 )
 
 type op struct {
@@ -58,6 +59,8 @@ func (n *resourceMetric) loop(current time.Time) {
 				} else {
 					n.out <- n.activeReqCount
 				}
+			case getFailCount:
+				n.out <- n.successiveFailCount
 
 			}
 		}
@@ -139,6 +142,14 @@ func (n *resourceMetric) takeActiveReqCount() uint64 {
 	}
 	data := <-n.out
 	return data.(uint64)
+}
+
+func (n *resourceMetric) takeFailCount() uint {
+	n.in <- op{
+		typ: getFailCount,
+	}
+	data := <-n.out
+	return data.(uint)
 }
 
 func (n *resourceMetrics) takeCircuitBreakerTimeout(nd Resource) *time.Time {
