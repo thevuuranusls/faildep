@@ -8,7 +8,7 @@ type dispatcher struct {
 	srvPicker ServerPicker
 }
 
-func newDispatcher(resources []string, metric *resourceMetrics) *dispatcher {
+func newDispatcher() *dispatcher {
 	dist := &dispatcher{}
 	dist.srvPicker = P2CPick
 	return dist

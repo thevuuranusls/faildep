@@ -51,7 +51,6 @@ const (
 type FailDep struct {
 	name              string
 	funcFlags         funcFlag
-	servers           ResourceList
 	distributor       dispatcher
 	metrics           resourceMetrics
 	maxRetry          uint
@@ -135,26 +134,26 @@ func WithPickServer(sp ServerPicker) func(f *FailDep) {
 	}
 }
 
+func NewFailDepStatic(name string, nodes []string, opts ...func(f *FailDep)) *FailDep {
+	return NewFailDep(name, func() ([]string, chan struct{}) {
+		return nodes, make(chan struct{})
+	}, opts...)
+}
+
 // NewFailDep construct FailDep using given node list
 // the node array is provide using string, e.g. `10.10.10.10:9999`
 // It's will be tweaked use OptFunction like `WithRetry`, `WithCiruitBreake`, `WithBulkhead`
-func NewFailDep(name string, nodes []string, opts ...func(f *FailDep)) *FailDep {
-	servers := make(ResourceList, 0, len(nodes))
-	for idx, addr := range nodes {
-		servers = append(servers, Resource{
-			index:  idx,
-			Server: addr,
-		})
-	}
+func NewFailDep(name string, nodes NodeProvider, opts ...func(f *FailDep)) *FailDep {
+
+	servers := nodeToResource(nodes)
 
 	m := newNodeMetric(servers)
 
-	d := newDispatcher(nodes, m)
+	d := newDispatcher()
 
 	f := &FailDep{
 		name:         name,
 		funcFlags:    0,
-		servers:      servers,
 		distributor:  *d,
 		metrics:      *m,
 		repClassify:  NetworkErrorClassification,
@@ -180,7 +179,9 @@ func (f *FailDep) Do(service func(node *Resource) error) error {
 
 		execContext.incServerAttemptCount()
 
-		execContext.node = f.distributor.srvPicker(&f.metrics, execContext.node, f.availableServer())
+		avSrv := f.metrics.availableServer(f.funcFlags)
+
+		execContext.node = f.distributor.srvPicker(&f.metrics, execContext.node, avSrv)
 		if execContext.node == nil {
 			f.logger.Error("res:", f.name, "s-attempt:", execContext.serverAttemptCount, "error:", "AllServerHasDown")
 			return AllResourceDownError
@@ -239,17 +240,6 @@ func (f *FailDep) Do(service func(node *Resource) error) error {
 	return MaxRetryError
 }
 
-func (f *FailDep) availableServer() ResourceList {
-	nodes := make([]Resource, 0, len(f.servers))
-	for _, node := range f.servers {
-		if !(f.funcFlags&circuitBreaker == circuitBreaker && f.metrics.isCircuitBreakTripped(node)) &&
-			!(f.funcFlags&bulkhead == bulkhead && f.metrics.takeMetric(node).activeReqCount >= f.metrics.activeThreshold) {
-			nodes = append(nodes, node)
-		}
-	}
-	return nodes
-}
-
 type stats struct {
 	Av        bool   `json:"av"`
 	Srv       string `json:"srv"`
@@ -264,8 +254,9 @@ func (f *FailDep) logStats() {
 		}
 	}()
 	for range time.Tick(1 * time.Second) {
-		ss := make([]stats, len(f.servers))
-		for _, node := range f.servers {
+		servers := f.metrics.allServers()
+		ss := make([]stats, len(servers))
+		for _, node := range servers {
 			av := false
 			metric := f.metrics.takeMetric(node)
 			if !(f.funcFlags&circuitBreaker == circuitBreaker && f.metrics.isCircuitBreakTripped(node)) &&

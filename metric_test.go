@@ -13,7 +13,11 @@ func TestMetric_add_and_get(t *testing.T) {
 		Server: "123",
 	}
 
-	m := newNodeMetric(ResourceList{n})
+	m := newNodeMetric(func() (func() ResourceList, chan struct{}) {
+		return func() ResourceList {
+			return ResourceList{n}
+		}, make(chan struct{})
+	})
 	m.start()
 
 	nm := m.takeMetric(n)

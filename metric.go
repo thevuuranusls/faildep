@@ -68,6 +68,8 @@ func (n *resourceMetric) loop(current time.Time) {
 }
 
 type resourceMetrics struct {
+	resources            func() ResourceList
+	resChangeChan        chan struct{}
 	metrics              map[Resource]*resourceMetric
 	failureThreshold     uint
 	activeThreshold      uint64
@@ -77,21 +79,14 @@ type resourceMetrics struct {
 	trippedBackOff       BackOff
 }
 
-func newNodeMetric(nodes ResourceList) *resourceMetrics {
+func newNodeMetric(resources ResourceProvider) *resourceMetrics {
+	res, c := resources()
+	initSize := len(res())
 	nm := &resourceMetrics{
-		metrics:        make(map[Resource]*resourceMetric, len(nodes)),
+		resources:      res,
+		resChangeChan:  c,
+		metrics:        make(map[Resource]*resourceMetric, initSize),
 		trippedBackOff: Exponential,
-	}
-	for _, node := range nodes {
-		metric := &resourceMetric{
-			metrics:             nm,
-			successiveFailCount: 0,
-			activeReqCount:      0,
-			in:                  make(chan op),
-			out:                 make(chan interface{}),
-		}
-		nm.metrics[node] = metric
-
 	}
 	return nm
 }
@@ -101,6 +96,22 @@ func (n *resourceMetrics) start() {
 	for _, metric := range n.metrics {
 		go metric.loop(current)
 	}
+}
+
+func (n *resourceMetrics) allServers() ResourceList {
+	return n.resources()
+}
+
+func (n *resourceMetrics) availableServer(funcFlags funcFlag) ResourceList {
+	servers := n.resources()
+	nodes := make([]Resource, 0, len(servers))
+	for _, node := range servers {
+		if !(funcFlags&circuitBreaker == circuitBreaker && n.isCircuitBreakTripped(node)) &&
+			!(funcFlags&bulkhead == bulkhead && n.takeMetric(node).activeReqCount >= n.activeThreshold) {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
 }
 
 func (n *resourceMetric) recordSuccess(rt time.Duration) {

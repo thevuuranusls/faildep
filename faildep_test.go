@@ -25,7 +25,7 @@ func (t testNetError) Error() string {
 // This example show how to initialize FailDep with `retry`, `bulkheads` and `circuitBreaker`
 // and execute a operation on server.
 func ExampleFaildep() {
-	faildep := NewFailDep(
+	faildep := NewFailDepStatic(
 		"exampleDep",
 		[]string{"server1:80", "server2:80"},                                             // 2 backend nodes
 		WithRetry(5, 1, 30*time.Millisecond, 100*time.Millisecond, DecorrelatedJittered), // retry 1 time on old server and max repick server 5 times, otherwise break.
@@ -47,7 +47,7 @@ func doSomeOneNode(node *Resource) error {
 }
 
 func TestTryMax_inSingle_nextServers(t *testing.T) {
-	f := NewFailDep("testTryMax", []string{"1", "2", "3"},
+	f := NewFailDepStatic("testTryMax", []string{"1", "2", "3"},
 		WithRetry(2, 2, 20*time.Millisecond, 100*time.Millisecond, DecorrelatedJittered),
 	)
 	var count int64
@@ -61,7 +61,7 @@ func TestTryMax_inSingle_nextServers(t *testing.T) {
 
 func TestDisableBreaker(t *testing.T) {
 
-	f := NewFailDep("testDisable", []string{"1"})
+	f := NewFailDepStatic("testDisable", []string{"1"})
 	for i := 0; i < 3; i++ {
 		err := f.Do(func(node *Resource) error {
 			return testNetError{}
@@ -73,7 +73,7 @@ func TestDisableBreaker(t *testing.T) {
 	})
 	assert.EqualError(t, err, "realError")
 
-	f2 := NewFailDep("testDisable2", []string{"1"}, WithCircuitBreaker(3, 2*time.Millisecond, 3*time.Second, Exponential))
+	f2 := NewFailDepStatic("testDisable2", []string{"1"}, WithCircuitBreaker(3, 2*time.Millisecond, 3*time.Second, Exponential))
 	for i := 0; i < 3; i++ {
 		err := f2.Do(func(node *Resource) error {
 			return testNetError{}
@@ -88,7 +88,7 @@ func TestDisableBreaker(t *testing.T) {
 }
 
 func TestFailureAndRestart(t *testing.T) {
-	f := NewFailDep("testFailRestart", []string{"1"},
+	f := NewFailDepStatic("testFailRestart", []string{"1"},
 		WithCircuitBreaker(3, 2*time.Millisecond, 3*time.Second, Exponential),
 	)
 	for i := 0; i < 3; i++ {
@@ -109,7 +109,7 @@ func TestFailureAndRestart(t *testing.T) {
 }
 
 func TestExponentialTrippedTime(t *testing.T) {
-	f := NewFailDep("testExp", []string{"1"},
+	f := NewFailDepStatic("testExp", []string{"1"},
 		WithCircuitBreaker(3, 2*time.Millisecond, 10*time.Second, Exponential),
 	)
 	for i := 0; i < 3; i++ {
@@ -144,7 +144,7 @@ func TestExponentialTrippedTime(t *testing.T) {
 }
 
 func TestExponentialMaxTime(t *testing.T) {
-	f := NewFailDep("testExp", []string{"1"},
+	f := NewFailDepStatic("testExp", []string{"1"},
 		WithCircuitBreaker(3, 2*time.Millisecond, 10*time.Second, Exponential),
 	)
 	for i := 0; i < 3; i++ {
