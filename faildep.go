@@ -70,7 +70,7 @@ type FailDep struct {
 // - trippedBaseTime indicate first trip time when breaker open, and successive error will increase base on it.
 // - trippedTimeoutMax indicate maximum tripped time after growth when successive error occur
 // - trippedBackOff indicate how tripped timeout growth, see backoff.go: `Exponential`, `ExponentialJittered`, `DecorrelatedJittered`.
-func WithCircuitBreaker(successiveFailThreshold uint, trippedBaseTime time.Duration, trippedTimeoutMax time.Duration, trippedBackOff BackOff) func(f *FailDep) {
+func WithCircuitBreaker(successiveFailThreshold uint64, trippedBaseTime time.Duration, trippedTimeoutMax time.Duration, trippedBackOff BackOff) func(f *FailDep) {
 	return func(f *FailDep) {
 		f.funcFlags |= circuitBreaker
 		f.metrics.failureThreshold = successiveFailThreshold
@@ -165,8 +165,6 @@ func NewFailDep(name string, nodes NodeProvider, opts ...func(f *FailDep)) *Fail
 		opt(f)
 	}
 
-	m.start()
-
 	return f
 }
 
@@ -244,7 +242,7 @@ type stats struct {
 	Av        bool   `json:"av"`
 	Srv       string `json:"srv"`
 	ActiveReq uint64 `json:"activeReq"`
-	FailCount uint   `json:"failCount"`
+	FailCount uint64   `json:"failCount"`
 }
 
 func (f *FailDep) logStats() {
@@ -259,7 +257,7 @@ func (f *FailDep) logStats() {
 		for _, node := range servers {
 			av := false
 			metric := f.metrics.takeMetric(node)
-			if !(f.funcFlags&circuitBreaker == circuitBreaker && f.metrics.isCircuitBreakTripped(node)) &&
+			if !(f.funcFlags&circuitBreaker == circuitBreaker && metric.isCircuitBreakTripped()) &&
 				!(f.funcFlags&bulkhead == bulkhead && metric.takeActiveReqCount() >= f.metrics.activeThreshold) {
 				av = true
 			}

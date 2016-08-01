@@ -18,18 +18,17 @@ func TestMetric_add_and_get(t *testing.T) {
 			return ResourceList{n}
 		}, make(chan struct{})
 	})
-	m.start()
 
 	nm := m.takeMetric(n)
 	nm.recordFailure(1 * time.Millisecond)
 	m.takeMetric(n).recordFailure(1 * time.Millisecond)
 	mm := m.takeMetric(n)
-	assert.Equal(t, uint(2), mm.successiveFailCount)
+	assert.Equal(t, uint64(2), mm.takeFailCount())
 
 	m.takeMetric(n).recordSuccess(1 * time.Millisecond)
 
 	mm = m.takeMetric(n)
 
-	assert.Equal(t, uint(0), mm.successiveFailCount)
+	assert.Equal(t, uint64(0), mm.takeFailCount())
 
 }
