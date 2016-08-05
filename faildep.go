@@ -239,10 +239,10 @@ func (f *FailDep) Do(service func(node *Resource) error) error {
 }
 
 type stats struct {
-	Av        bool   `json:"av"`
+	Av        int    `json:"av"`
 	Srv       string `json:"srv"`
 	ActiveReq uint64 `json:"activeReq"`
-	FailCount uint64   `json:"failCount"`
+	FailCount uint64 `json:"failCount"`
 }
 
 func (f *FailDep) logStats() {
@@ -253,13 +253,13 @@ func (f *FailDep) logStats() {
 	}()
 	for range time.Tick(1 * time.Second) {
 		servers := f.metrics.allServers()
-		ss := make([]stats, len(servers))
+		ss := make([]stats, 0, len(servers))
 		for _, node := range servers {
-			av := false
+			av := 0
 			metric := f.metrics.takeMetric(node)
 			if !(f.funcFlags&circuitBreaker == circuitBreaker && metric.isCircuitBreakTripped()) &&
 				!(f.funcFlags&bulkhead == bulkhead && metric.takeActiveReqCount() >= f.metrics.activeThreshold) {
-				av = true
+				av = 1
 			}
 			ss = append(ss, stats{
 				Av:        av,
