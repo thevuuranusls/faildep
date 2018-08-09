@@ -7,6 +7,7 @@ import (
 	"unsafe"
 )
 
+// opType
 type opType int
 
 type op struct {
